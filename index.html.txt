@@ -1,0 +1,1135 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Camera, Package, Search, Plus, Minus, Eye, AlertTriangle, BarChart3, QrCode, Download, Upload, Calendar, TrendingUp, Clock, Zap, Users } from 'lucide-react';
+
+const StockManagementApp = () => {
+  // Planning de production 2025-2026 (basé sur votre planning)
+  const [productionPlan, setProductionPlan] = useState([
+    { period: '2025-06', week: 0.5, machines: 3, cumulative: 3 },
+    { period: '2025-07', week: 0.75, machines: 4, cumulative: 7 },
+    { period: '2025-08', week: 2, machines: 5, cumulative: 12 },
+    { period: '2025-09', week: 2, machines: 9, cumulative: 21 },
+    { period: '2025-10', week: 2, machines: 9, cumulative: 30 },
+    { period: '2025-11', week: 3, machines: 12, cumulative: 42 },
+    { period: '2025-12', week: 3, machines: 10, cumulative: 52 },
+    { period: '2026-01', week: 3, machines: 13, cumulative: 65 },
+    { period: '2026-02', week: 4, machines: 16, cumulative: 81 },
+    { period: '2026-03', week: 4, machines: 18, cumulative: 99 },
+    { period: '2026-04', week: 5, machines: 20, cumulative: 119 },
+    { period: '2026-05', week: 5, machines: 19, cumulative: 138 },
+    { period: '2026-06', week: 5, machines: 21, cumulative: 159 },
+    { period: '2026-07', week: 5, machines: 22, cumulative: 181 },
+    { period: '2026-08', week: 5, machines: 11, cumulative: 192 },
+    { period: '2026-09', week: 5, machines: 21, cumulative: 213 },
+    { period: '2026-10', week: 5, machines: 22, cumulative: 235 },
+    { period: '2026-11', week: 5, machines: 20, cumulative: 255 },
+    { period: '2026-12', week: 5, machines: 15, cumulative: 270 }
+  ]);
+
+  // Configuration des postes de production
+  const [workstations, setWorkstations] = useState([
+    { id: 'WS1', name: 'Assemblage Pièces Volumineuses', capacity: 2, operators: 2, efficiency: 0.85 },
+    { id: 'WS2', name: 'Installations', capacity: 1.5, operators: 1, efficiency: 0.90 },
+    { id: 'WS3', name: 'Partie Électrique', capacity: 2.5, operators: 1, efficiency: 0.95 },
+    { id: 'WS4', name: 'Montage Final', capacity: 1, operators: 1, efficiency: 0.80 }
+  ]);
+
+  // BOM (Bill of Materials) - exemple pour ST-300
+  const [bom, setBom] = useState({
+    'ST-300': [
+      { componentId: 'ST-300-P-01', quantity: 1, workstation: 'WS1' },
+      { componentId: 'ST-300-P-03', quantity: 1, workstation: 'WS1' },
+      { componentId: 'ST-300-P-02', quantity: 1, workstation: 'WS2' },
+      { componentId: 'ST-300-P-04', quantity: 1, workstation: 'WS2' },
+      { componentId: 'ST-300-EV GRAS-2P', quantity: 1, workstation: 'WS2' },
+      { componentId: 'ST-300-F-UV', quantity: 1, workstation: 'WS2' },
+      { componentId: 'ST-300-INS-NIV-ULS-1', quantity: 1, workstation: 'WS3' },
+      { componentId: 'ST 300-MODULE FILTRATION', quantity: 2, workstation: 'WS1' },
+      { componentId: 'ST-300-C-1-BAC', quantity: 1, workstation: 'WS1' },
+      { componentId: 'ST-300-STRUCT-ASS', quantity: 1, workstation: 'WS4' },
+      // Ajout d'autres composants critiques
+      { componentId: 'ST-300-EV-1P-2WAY', quantity: 3, workstation: 'WS3' },
+      { componentId: 'ST-300-EV-1P-3WAY', quantity: 3, workstation: 'WS3' },
+      { componentId: 'ST-300-INS-NIV-ULS-2', quantity: 2, workstation: 'WS3' },
+      { componentId: 'ST-300-INS-DEB-', quantity: 2, workstation: 'WS3' },
+      { componentId: 'ST-300-INS-PRES-1', quantity: 2, workstation: 'WS3' }
+    ]
+  });
+
+  // MRP Calculations
+  const [mrpData, setMrpData] = useState([]);
+
+  // Calcul MRP
+  const calculateMRP = () => {
+    const currentDate = new Date();
+    const mrpResults = [];
+
+    // Pour chaque période de production
+    productionPlan.forEach(period => {
+      const periodDate = new Date(period.period + '-01');
+      
+      // Pour chaque composant dans le BOM
+      bom['ST-300'].forEach(bomItem => {
+        const component = components.find(c => c.id === bomItem.componentId);
+        if (!component) return;
+
+        const totalNeed = period.machines * bomItem.quantity;
+        const availableStock = component.stock.available + component.stock.inProgress;
+        const shortage = Math.max(0, totalNeed - availableStock);
+        
+        // Calcul de la date de commande (lead time + transit)
+        const totalLeadTime = component.ltStd + component.ltTransit;
+        const orderDate = new Date(periodDate);
+        orderDate.setDate(orderDate.getDate() - (totalLeadTime * 7)); // Convertir semaines en jours
+
+        // Classification urgence
+        const daysUntilOrder = Math.ceil((orderDate - currentDate) / (1000 * 60 * 60 * 24));
+        let urgency = 'OK';
+        if (daysUntilOrder <= 7) urgency = 'URGENT';
+        else if (daysUntilOrder <= 21) urgency = 'ATTENTION';
+
+        if (shortage > 0) {
+          mrpResults.push({
+            period: period.period,
+            componentId: component.id,
+            designation: component.designation,
+            supplier: component.supplier,
+            needed: totalNeed,
+            available: availableStock,
+            shortage: shortage,
+            orderDate: orderDate.toISOString().split('T')[0],
+            deliveryDate: periodDate.toISOString().split('T')[0],
+            leadTime: totalLeadTime,
+            urgency: urgency,
+            workstation: bomItem.workstation,
+            cost: shortage * (component.estimatedCost || 0)
+          });
+        }
+      });
+    });
+
+    setMrpData(mrpResults.sort((a, b) => new Date(a.orderDate) - new Date(b.orderDate)));
+  };
+
+  // Calcul de la capacité
+  const calculateCapacity = () => {
+    return productionPlan.map(period => {
+      const capacityByWorkstation = workstations.map(ws => {
+        const requiredCapacity = period.machines * 1; // 1 machine = 1 unité de capacité
+        const availableCapacity = ws.capacity * ws.efficiency * period.week;
+        const utilization = (requiredCapacity / availableCapacity) * 100;
+        
+        return {
+          workstation: ws.name,
+          required: requiredCapacity,
+          available: availableCapacity,
+          utilization: Math.min(utilization, 100),
+          bottleneck: utilization > 95
+        };
+      });
+
+      return {
+        period: period.period,
+        machines: period.machines,
+        workstations: capacityByWorkstation,
+        overloaded: capacityByWorkstation.some(ws => ws.utilization > 95)
+      };
+    });
+  };
+  // État initial avec vos données
+  const [suppliers, setSuppliers] = useState([
+    { name: 'RA OL', country: 'Roumanie', region: 'EU', category: 'A', components: 19, value: 4033.33, ltStd: 3, ltTransit: 1 },
+    { name: 'ETN', country: 'France', region: 'EU', category: 'A', components: 43, value: 2395.50, ltStd: 2, ltTransit: 1 },
+    { name: 'POLYMEM', country: 'France', region: 'EU', category: 'A', components: 6, value: 985.16, ltStd: 3, ltTransit: 1 },
+    { name: 'AZUD', country: 'SPAIN', region: 'EU', category: 'A', components: 2, value: 605.93, ltStd: 2, ltTransit: 1 },
+    { name: 'SEVEGRAND', country: 'France', region: 'EU', category: 'B', components: 44, value: 365.67, ltStd: 2, ltTransit: 1 },
+    { name: 'SENTEC', country: 'China', region: 'NON EU', category: 'B', components: 2, value: 315.32, ltStd: 4, ltTransit: 5 },
+    { name: 'MEUDY', country: 'China', region: 'NON EU', category: 'B', components: 2, value: 290.09, ltStd: 4, ltTransit: 5 },
+    { name: 'QINGDAO I-FLOW', country: 'China', region: 'NON EU', category: 'B', components: 2, value: 154.88, ltStd: 4, ltTransit: 5 }
+  ]);
+
+  const [components, setComponents] = useState([
+    { id: 'ST-300-P-01', designation: 'Pompe de relevage P01', supplier: 'MEUDY', country: 'China', region: 'NON EU', qtyPerMachine: 1, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 12, quarantine: 2, inProgress: 3 }, minStock: 5, estimatedCost: 125 },
+    { id: 'ST-300-P-03', designation: 'Pompe eau propre P03', supplier: 'MEUDY', country: 'China', region: 'NON EU', qtyPerMachine: 1, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 8, quarantine: 0, inProgress: 1 }, minStock: 3, estimatedCost: 165 },
+    { id: 'ST-300-P-02', designation: 'Pompe de filtration P02', supplier: 'TECHO', country: 'China', region: 'NON EU', qtyPerMachine: 1, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 5, quarantine: 1, inProgress: 0 }, minStock: 4, estimatedCost: 154 },
+    { id: 'ST-300-P-04', designation: 'Pompe recirculation UV P04', supplier: 'LONKEY', country: 'China', region: 'NON EU', qtyPerMachine: 1, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 3, quarantine: 0, inProgress: 2 }, minStock: 3, estimatedCost: 89 },
+    { id: 'ST-300-EV GRAS-2P', designation: 'Electrovanne 2" purge gras/hydrocarbures', supplier: 'QINGDAO I-FLOW', country: 'China', region: 'NON EU', qtyPerMachine: 1, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 15, quarantine: 0, inProgress: 0 }, minStock: 6, estimatedCost: 78 },
+    { id: 'ST-300-EV-1P-2WAY', designation: '2 way valve', supplier: 'TONHEFLOW', country: 'China', region: 'NON EU', qtyPerMachine: 3, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 8, quarantine: 0, inProgress: 2 }, minStock: 12, estimatedCost: 45 },
+    { id: 'ST-300-EV-1P-3WAY', designation: '3 way valve', supplier: 'TONHEFLOW', country: 'China', region: 'NON EU', qtyPerMachine: 3, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 6, quarantine: 1, inProgress: 0 }, minStock: 12, estimatedCost: 52 },
+    { id: 'ST-300-F-UV', designation: 'Lampe UV stérilisatrice', supplier: 'AGUATOPONE', country: 'China', region: 'NON EU', qtyPerMachine: 1, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 2, quarantine: 1, inProgress: 0 }, minStock: 4, estimatedCost: 187 },
+    { id: 'ST-300-INS-NIV-ULS-1', designation: 'Capteurs ultrasons niveaux 1 m', supplier: 'SENTEC', country: 'China', region: 'NON EU', qtyPerMachine: 1, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 6, quarantine: 0, inProgress: 1 }, minStock: 3, estimatedCost: 95 },
+    { id: 'ST-300-INS-NIV-ULS-2', designation: 'Capteurs ultrasons niveaux 2 m', supplier: 'SENTEC', country: 'China', region: 'NON EU', qtyPerMachine: 2, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 4, quarantine: 0, inProgress: 0 }, minStock: 8, estimatedCost: 110 },
+    { id: 'ST-300-INS-DEB-', designation: 'Debitmètre sortie filtration', supplier: 'Crownhaosheng Tech', country: 'China', region: 'NON EU', qtyPerMachine: 2, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 3, quarantine: 0, inProgress: 1 }, minStock: 8, estimatedCost: 67 },
+    { id: 'ST-300-INS-PRES-1', designation: 'Capteurs pressions système filtration 4-20mA', supplier: 'ATECH SENSOR', country: 'China', region: 'NON EU', qtyPerMachine: 2, unit: 'PC', ltStd: 4, ltTransit: 5, stock: { available: 5, quarantine: 0, inProgress: 0 }, minStock: 8, estimatedCost: 58 },
+    { id: 'ST 300-MODULE FILTRATION', designation: 'Module filtration ASS', supplier: 'MATSYA/POLYMEM', country: 'France', region: 'EU', qtyPerMachine: 2, unit: 'PC', ltStd: 3, ltTransit: 1, stock: { available: 10, quarantine: 0, inProgress: 4 }, minStock: 8, estimatedCost: 245 },
+    { id: 'ST-300-C-1-BAC', designation: 'Bac de relevage nue', supplier: 'STYL +', country: 'France', region: 'EU', qtyPerMachine: 1, unit: 'PC', ltStd: 2, ltTransit: 1, stock: { available: 4, quarantine: 0, inProgress: 2 }, minStock: 3, estimatedCost: 320 },
+    { id: 'ST-300-STRUCT-ASS', designation: 'Châssis', supplier: 'RA OL', country: 'Roumanie', region: 'EU', qtyPerMachine: 1, unit: 'PC', ltStd: 3, ltTransit: 1, stock: { available: 7, quarantine: 0, inProgress: 3 }, minStock: 5, estimatedCost: 450 }
+  ]);
+
+  const [movements, setMovements] = useState([
+    { id: 1, date: '2025-06-30', componentId: 'ST-300-P-01', type: 'IN', quantity: 5, from: 'Réception', to: 'Stock Disponible', operator: 'Opérateur 1', note: 'Livraison MEUDY' },
+    { id: 2, date: '2025-06-29', componentId: 'ST-300-F-UV', type: 'OUT', quantity: 2, from: 'Stock Disponible', to: 'Production', operator: 'Opérateur 2', note: 'Machine #ST300-001' },
+    { id: 3, date: '2025-06-29', componentId: 'ST-300-P-02', type: 'QUARANTINE', quantity: 1, from: 'Réception', to: 'Quarantaine', operator: 'Opérateur 1', note: 'Défaut visuel' }
+  ]);
+
+  const [currentView, setCurrentView] = useState('dashboard');
+  const [selectedComponent, setSelectedComponent] = useState(null);
+  const [scannerActive, setScannerActive] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterSupplier, setFilterSupplier] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
+  const [selectedPeriod, setSelectedPeriod] = useState('2025-06');
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+
+  // Calcul MRP au chargement
+  useEffect(() => {
+    calculateMRP();
+  }, [components, productionPlan]);
+
+  // Calculs pour le dashboard
+  const totalComponents = components.length;
+  const lowStockItems = components.filter(c => 
+    (c.stock.available + c.stock.inProgress) < c.minStock
+  ).length;
+  const totalStock = components.reduce((sum, c) => 
+    sum + c.stock.available + c.stock.quarantine + c.stock.inProgress, 0
+  );
+  const quarantineItems = components.filter(c => c.stock.quarantine > 0).length;
+  const urgentOrders = mrpData.filter(item => item.urgency === 'URGENT').length;
+  const totalMRPCost = mrpData.reduce((sum, item) => sum + (item.cost || 0), 0);
+
+  // Filtrage des composants
+  const filteredComponents = components.filter(comp => {
+    const matchesSearch = comp.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         comp.designation.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSupplier = !filterSupplier || comp.supplier === filterSupplier;
+    const supplierData = suppliers.find(s => s.name === comp.supplier);
+    const matchesCategory = !filterCategory || (supplierData && supplierData.category === filterCategory);
+    
+    return matchesSearch && matchesSupplier && matchesCategory;
+  });
+
+  // Fonction pour démarrer le scanner
+  const startScanner = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setScannerActive(true);
+      }
+    } catch (err) {
+      alert('Impossible d\'accéder à la caméra');
+    }
+  };
+
+  // Fonction pour arrêter le scanner
+  const stopScanner = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject;
+      const tracks = stream.getTracks();
+      tracks.forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setScannerActive(false);
+  };
+
+  // Simulation de scan QR code
+  const simulateScan = (componentId) => {
+    const component = components.find(c => c.id === componentId);
+    if (component) {
+      setSelectedComponent(component);
+      setCurrentView('movement');
+      stopScanner();
+    } else {
+      alert('Composant non trouvé');
+    }
+  };
+
+  // Ajouter un mouvement
+  const addMovement = (movementData) => {
+    const newMovement = {
+      id: movements.length + 1,
+      date: new Date().toISOString().split('T')[0],
+      ...movementData,
+      operator: 'Utilisateur'
+    };
+    
+    setMovements([newMovement, ...movements]);
+    
+    // Mettre à jour le stock
+    setComponents(prev => prev.map(comp => {
+      if (comp.id === movementData.componentId) {
+        const newStock = { ...comp.stock };
+        
+        switch (movementData.type) {
+          case 'IN':
+            newStock.available += movementData.quantity;
+            break;
+          case 'OUT':
+            newStock.available -= movementData.quantity;
+            break;
+          case 'QUARANTINE':
+            newStock.quarantine += movementData.quantity;
+            newStock.available -= movementData.quantity;
+            break;
+          case 'RELEASE':
+            newStock.available += movementData.quantity;
+            newStock.quarantine -= movementData.quantity;
+            break;
+          case 'TO_PRODUCTION':
+            newStock.inProgress += movementData.quantity;
+            newStock.available -= movementData.quantity;
+            break;
+          case 'FROM_PRODUCTION':
+            newStock.available += movementData.quantity;
+            newStock.inProgress -= movementData.quantity;
+            break;
+        }
+        
+        return { ...comp, stock: newStock };
+      }
+      return comp;
+    }));
+  };
+
+  // Composant Dashboard
+  const Dashboard = () => (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-blue-600 text-sm font-medium">Total Références</p>
+              <p className="text-2xl font-bold text-blue-800">{totalComponents}</p>
+            </div>
+            <Package className="h-8 w-8 text-blue-600" />
+          </div>
+        </div>
+        
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-green-600 text-sm font-medium">Total Stock</p>
+              <p className="text-2xl font-bold text-green-800">{totalStock}</p>
+            </div>
+            <BarChart3 className="h-8 w-8 text-green-600" />
+          </div>
+        </div>
+        
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-red-600 text-sm font-medium">Stock Faible</p>
+              <p className="text-2xl font-bold text-red-800">{lowStockItems}</p>
+            </div>
+            <AlertTriangle className="h-8 w-8 text-red-600" />
+          </div>
+        </div>
+        
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-orange-600 text-sm font-medium">Quarantaine</p>
+              <p className="text-2xl font-bold text-orange-800">{quarantineItems}</p>
+            </div>
+            <Eye className="h-8 w-8 text-orange-600" />
+          </div>
+        </div>
+        
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-yellow-600 text-sm font-medium">Commandes MRP</p>
+              <p className="text-2xl font-bold text-yellow-800">{urgentOrders}</p>
+            </div>
+            <Clock className="h-8 w-8 text-yellow-600" />
+          </div>
+        </div>
+      </div>
+
+      {/* Alertes urgentes */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <h3 className="text-red-800 font-semibold mb-3 flex items-center">
+            <AlertTriangle className="h-5 w-5 mr-2" />
+            Stocks Critiques
+          </h3>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {components.filter(c => (c.stock.available + c.stock.inProgress) < c.minStock)
+              .slice(0, 5)
+              .map(comp => (
+                <div key={comp.id} className="bg-white rounded p-3 flex justify-between items-center">
+                  <div>
+                    <p className="font-medium text-red-800">{comp.id}</p>
+                    <p className="text-sm text-red-600">{comp.designation.substring(0, 40)}...</p>
+                    <p className="text-xs text-red-500">
+                      Stock: {comp.stock.available} | Min: {comp.minStock} | 
+                      {comp.supplier} ({comp.ltStd + comp.ltTransit} sem)
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => setCurrentView('mrp')}
+                    className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+                  >
+                    Voir MRP
+                  </button>
+                </div>
+              ))}
+          </div>
+        </div>
+
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <h3 className="text-yellow-800 font-semibold mb-3 flex items-center">
+            <Clock className="h-5 w-5 mr-2" />
+            Commandes Urgentes MRP
+          </h3>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {mrpData.filter(item => item.urgency === 'URGENT')
+              .slice(0, 5)
+              .map((item, index) => (
+                <div key={index} className="bg-white rounded p-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-medium text-yellow-800">{item.componentId}</p>
+                      <p className="text-sm text-yellow-600">Manque: {item.shortage} pcs</p>
+                      <p className="text-xs text-yellow-500">
+                        Commander avant: {new Date(item.orderDate).toLocaleDateString('fr-FR')}
+                      </p>
+                    </div>
+                    <span className="bg-red-100 text-red-800 px-2 py-1 text-xs rounded">
+                      {item.urgency}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            {mrpData.filter(item => item.urgency === 'URGENT').length === 0 && (
+              <p className="text-yellow-600 text-sm italic">Aucune commande urgente</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Aperçu planning */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+        <h3 className="text-blue-800 font-semibold mb-4 flex items-center">
+          <Calendar className="h-5 w-5 mr-2" />
+          Aperçu Planning Production
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+          {productionPlan.slice(0, 6).map(period => (
+            <div key={period.period} className="bg-white rounded p-3 text-center">
+              <p className="text-sm font-medium text-blue-800">{period.period}</p>
+              <p className="text-lg font-bold text-blue-900">{period.machines}</p>
+              <p className="text-xs text-blue-600">machines</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 text-center">
+          <button 
+            onClick={() => setCurrentView('planning')}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          >
+            Voir Planning Complet
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Composant Scanner
+  const Scanner = () => (
+    <div className="space-y-4">
+      <div className="bg-white rounded-lg border p-6 text-center">
+        {!scannerActive ? (
+          <div className="space-y-4">
+            <QrCode className="h-16 w-16 mx-auto text-gray-400" />
+            <h3 className="text-lg font-semibold">Scanner QR Code / Code Barre</h3>
+            <p className="text-gray-600">Scannez un composant pour effectuer une opération</p>
+            <button 
+              onClick={startScanner}
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 flex items-center mx-auto"
+            >
+              <Camera className="h-5 w-5 mr-2" />
+              Démarrer Scanner
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <video ref={videoRef} autoPlay className="w-full rounded" />
+            <canvas ref={canvasRef} className="hidden" />
+            <div className="flex gap-2 justify-center">
+              <button 
+                onClick={stopScanner}
+                className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+              >
+                Arrêter
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Simulation pour démonstration */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h4 className="font-semibold mb-3">Simulation Scanner</h4>
+        <div className="grid grid-cols-2 gap-2">
+          {components.slice(0, 6).map(comp => (
+            <button
+              key={comp.id}
+              onClick={() => simulateScan(comp.id)}
+              className="text-left p-2 bg-white border rounded hover:bg-gray-50"
+            >
+              <p className="text-sm font-medium">{comp.id}</p>
+              <p className="text-xs text-gray-600">{comp.designation.substring(0, 30)}...</p>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Composant liste des stocks
+  const StockList = () => (
+    <div className="space-y-4">
+      {/* Filtres */}
+      <div className="bg-white rounded-lg border p-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Recherche</label>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Référence ou désignation"
+              className="w-full border rounded px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Fournisseur</label>
+            <select
+              value={filterSupplier}
+              onChange={(e) => setFilterSupplier(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="">Tous</option>
+              {[...new Set(components.map(c => c.supplier))].map(supplier => (
+                <option key={supplier} value={supplier}>{supplier}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Catégorie ABC</label>
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="">Toutes</option>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Liste des composants */}
+      <div className="bg-white rounded-lg border overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Référence</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Désignation</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fournisseur</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Disponible</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Quarantaine</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En Cours</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Statut</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {filteredComponents.map(comp => {
+                const total = comp.stock.available + comp.stock.quarantine + comp.stock.inProgress;
+                const isLowStock = (comp.stock.available + comp.stock.inProgress) < comp.minStock;
+                const supplierData = suppliers.find(s => s.name === comp.supplier);
+                
+                return (
+                  <tr key={comp.id} className={isLowStock ? 'bg-red-50' : ''}>
+                    <td className="px-4 py-3 text-sm font-medium">{comp.id}</td>
+                    <td className="px-4 py-3 text-sm">{comp.designation}</td>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex items-center">
+                        <span>{comp.supplier}</span>
+                        {supplierData && (
+                          <span className={`ml-2 px-2 py-1 text-xs rounded ${
+                            supplierData.category === 'A' ? 'bg-green-100 text-green-800' :
+                            supplierData.category === 'B' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            {supplierData.category}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-center">{comp.stock.available}</td>
+                    <td className="px-4 py-3 text-sm text-center">
+                      {comp.stock.quarantine > 0 ? (
+                        <span className="text-orange-600 font-medium">{comp.stock.quarantine}</span>
+                      ) : (
+                        comp.stock.quarantine
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-center">{comp.stock.inProgress}</td>
+                    <td className="px-4 py-3 text-sm text-center font-medium">{total}</td>
+                    <td className="px-4 py-3 text-center">
+                      {isLowStock ? (
+                        <span className="bg-red-100 text-red-800 px-2 py-1 text-xs rounded">Urgent</span>
+                      ) : total > comp.minStock * 2 ? (
+                        <span className="bg-green-100 text-green-800 px-2 py-1 text-xs rounded">OK</span>
+                      ) : (
+                        <span className="bg-yellow-100 text-yellow-800 px-2 py-1 text-xs rounded">Moyen</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={() => {
+                          setSelectedComponent(comp);
+                          setCurrentView('movement');
+                        }}
+                        className="text-blue-600 hover:text-blue-800 text-sm"
+                      >
+                        Mouvement
+                      </button>
+                    </td>
+                  </tr>
+                );
+  };
+
+  // Composant MRP
+  const MRPView = () => {
+    const urgentItems = mrpData.filter(item => item.urgency === 'URGENT');
+    const attentionItems = mrpData.filter(item => item.urgency === 'ATTENTION');
+    
+    return (
+      <div className="space-y-6">
+        {/* Résumé MRP */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <h3 className="text-red-800 font-semibold mb-2 flex items-center">
+              <AlertTriangle className="h-5 w-5 mr-2" />
+              Commandes Urgentes
+            </h3>
+            <p className="text-2xl font-bold text-red-800">{urgentItems.length}</p>
+            <p className="text-sm text-red-600">À commander dans les 7 jours</p>
+          </div>
+          
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <h3 className="text-yellow-800 font-semibold mb-2 flex items-center">
+              <Clock className="h-5 w-5 mr-2" />
+              Attention
+            </h3>
+            <p className="text-2xl font-bold text-yellow-800">{attentionItems.length}</p>
+            <p className="text-sm text-yellow-600">À commander dans 3 semaines</p>
+          </div>
+          
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h3 className="text-blue-800 font-semibold mb-2 flex items-center">
+              <TrendingUp className="h-5 w-5 mr-2" />
+              Coût Total
+            </h3>
+            <p className="text-2xl font-bold text-blue-800">{totalMRPCost.toLocaleString('fr-FR')}€</p>
+            <p className="text-sm text-blue-600">Besoins identifiés</p>
+          </div>
+        </div>
+
+        {/* Filtres */}
+        <div className="bg-white rounded-lg border p-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Période</label>
+              <select
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value)}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">Toutes les périodes</option>
+                {productionPlan.map(period => (
+                  <option key={period.period} value={period.period}>
+                    {period.period} ({period.machines} machines)
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Urgence</label>
+              <select className="w-full border rounded px-3 py-2">
+                <option value="">Toutes</option>
+                <option value="URGENT">Urgent</option>
+                <option value="ATTENTION">Attention</option>
+                <option value="OK">OK</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Poste</label>
+              <select className="w-full border rounded px-3 py-2">
+                <option value="">Tous les postes</option>
+                {workstations.map(ws => (
+                  <option key={ws.id} value={ws.id}>{ws.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Table MRP */}
+        <div className="bg-white rounded-lg border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Période</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Composant</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fournisseur</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Besoin</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Disponible</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Manque</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Date Commande</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Lead Time</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Urgence</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Coût Est.</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {mrpData
+                  .filter(item => !selectedPeriod || item.period === selectedPeriod)
+                  .map((item, index) => {
+                    const isUrgent = item.urgency === 'URGENT';
+                    const isAttention = item.urgency === 'ATTENTION';
+                    
+                    return (
+                      <tr key={index} className={
+                        isUrgent ? 'bg-red-50' : 
+                        isAttention ? 'bg-yellow-50' : ''
+                      }>
+                        <td className="px-4 py-3 text-sm font-medium">{item.period}</td>
+                        <td className="px-4 py-3 text-sm">
+                          <div>
+                            <p className="font-medium">{item.componentId}</p>
+                            <p className="text-gray-600 text-xs">{item.designation.substring(0, 40)}...</p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-sm">{item.supplier}</td>
+                        <td className="px-4 py-3 text-sm text-center">{item.needed}</td>
+                        <td className="px-4 py-3 text-sm text-center">{item.available}</td>
+                        <td className="px-4 py-3 text-sm text-center font-medium text-red-600">{item.shortage}</td>
+                        <td className="px-4 py-3 text-sm text-center">{new Date(item.orderDate).toLocaleDateString('fr-FR')}</td>
+                        <td className="px-4 py-3 text-sm text-center">{item.leadTime} sem</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`px-2 py-1 text-xs rounded ${
+                            isUrgent ? 'bg-red-100 text-red-800' :
+                            isAttention ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-green-100 text-green-800'
+                          }`}>
+                            {item.urgency}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-center">{(item.cost || 0).toLocaleString('fr-FR')}€</td>
+                        <td className="px-4 py-3 text-center">
+                          <button className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">
+                            Commander
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Composant Planification de Production
+  const ProductionPlanning = () => {
+    const capacityData = calculateCapacity();
+    
+    return (
+      <div className="space-y-6">
+        {/* Vue d'ensemble */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h3 className="text-blue-800 font-semibold mb-2 flex items-center">
+              <Calendar className="h-5 w-5 mr-2" />
+              2025 Planning
+            </h3>
+            <p className="text-2xl font-bold text-blue-800">60</p>
+            <p className="text-sm text-blue-600">machines prévues</p>
+          </div>
+          
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <h3 className="text-green-800 font-semibold mb-2 flex items-center">
+              <TrendingUp className="h-5 w-5 mr-2" />
+              2026 Planning
+            </h3>
+            <p className="text-2xl font-bold text-green-800">210</p>
+            <p className="text-sm text-green-600">machines prévues</p>
+          </div>
+          
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+            <h3 className="text-orange-800 font-semibold mb-2 flex items-center">
+              <Users className="h-5 w-5 mr-2" />
+              Équipe
+            </h3>
+            <p className="text-2xl font-bold text-orange-800">5</p>
+            <p className="text-sm text-orange-600">opérateurs</p>
+          </div>
+          
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <h3 className="text-red-800 font-semibold mb-2 flex items-center">
+              <Zap className="h-5 w-5 mr-2" />
+              Goulots
+            </h3>
+            <p className="text-2xl font-bold text-red-800">
+              {capacityData.filter(period => period.overloaded).length}
+            </p>
+            <p className="text-sm text-red-600">périodes critiques</p>
+          </div>
+        </div>
+
+        {/* Planning par période */}
+        <div className="bg-white rounded-lg border overflow-hidden">
+          <div className="p-4 border-b">
+            <h3 className="text-lg font-semibold">Planning de Production Détaillé</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Période</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Machines</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Semaines</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Cumulé</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Capacité</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Statut</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {productionPlan.map((period, index) => {
+                  const capacity = capacityData[index];
+                  const isOverloaded = capacity?.overloaded;
+                  
+                  return (
+                    <tr key={period.period} className={isOverloaded ? 'bg-red-50' : ''}>
+                      <td className="px-4 py-3 text-sm font-medium">{period.period}</td>
+                      <td className="px-4 py-3 text-sm text-center">{period.machines}</td>
+                      <td className="px-4 py-3 text-sm text-center">{period.week}</td>
+                      <td className="px-4 py-3 text-sm text-center">{period.cumulative}</td>
+                      <td className="px-4 py-3 text-sm text-center">
+                        {capacity && (
+                          <div className="text-xs">
+                            {capacity.workstations.map(ws => (
+                              <div key={ws.workstation} className={`${ws.bottleneck ? 'text-red-600 font-bold' : ''}`}>
+                                {ws.workstation.replace('Assemblage Pièces Volumineuses', 'APV')
+                                  .replace('Installations', 'INST')
+                                  .replace('Partie Électrique', 'ELEC')
+                                  .replace('Montage Final', 'MONT')}: {ws.utilization.toFixed(0)}%
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {isOverloaded ? (
+                          <span className="bg-red-100 text-red-800 px-2 py-1 text-xs rounded">Surchargé</span>
+                        ) : (
+                          <span className="bg-green-100 text-green-800 px-2 py-1 text-xs rounded">OK</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Analyse des postes de travail */}
+        <div className="bg-white rounded-lg border p-6">
+          <h3 className="text-lg font-semibold mb-4">Configuration Postes de Travail</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {workstations.map(ws => (
+              <div key={ws.id} className="border rounded-lg p-4">
+                <h4 className="font-medium mb-2">{ws.name}</h4>
+                <div className="space-y-1 text-sm text-gray-600">
+                  <p>Capacité: {ws.capacity} machines/semaine</p>
+                  <p>Opérateurs: {ws.operators}</p>
+                  <p>Efficacité: {(ws.efficiency * 100)}%</p>
+                  <p>Capacité réelle: {(ws.capacity * ws.efficiency).toFixed(1)} machines/semaine</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Composant mouvement de stock
+  const StockMovement = () => {
+    const [movementType, setMovementType] = useState('IN');
+    const [quantity, setQuantity] = useState('');
+    const [note, setNote] = useState('');
+
+    const handleSubmit = () => {
+      if (!selectedComponent || !quantity) return;
+
+      const typeLabels = {
+        'IN': { from: 'Réception', to: 'Stock Disponible' },
+        'OUT': { from: 'Stock Disponible', to: 'Production' },
+        'QUARANTINE': { from: 'Stock Disponible', to: 'Quarantaine' },
+        'RELEASE': { from: 'Quarantaine', to: 'Stock Disponible' },
+        'TO_PRODUCTION': { from: 'Stock Disponible', to: 'En Cours Production' },
+        'FROM_PRODUCTION': { from: 'En Cours Production', to: 'Stock Disponible' }
+      };
+
+      addMovement({
+        componentId: selectedComponent.id,
+        type: movementType,
+        quantity: parseInt(quantity),
+        from: typeLabels[movementType].from,
+        to: typeLabels[movementType].to,
+        note
+      });
+
+      setQuantity('');
+      setNote('');
+      alert('Mouvement enregistré avec succès');
+    };
+
+    return (
+      <div className="space-y-6">
+        {selectedComponent && (
+          <div className="bg-white rounded-lg border p-6">
+            <h3 className="text-lg font-semibold mb-4">Mouvement de Stock</h3>
+            
+            <div className="bg-gray-50 rounded p-4 mb-6">
+              <h4 className="font-medium mb-2">{selectedComponent.id}</h4>
+              <p className="text-sm text-gray-600 mb-2">{selectedComponent.designation}</p>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="font-medium">Disponible: </span>
+                  <span className="text-green-600">{selectedComponent.stock.available}</span>
+                </div>
+                <div>
+                  <span className="font-medium">Quarantaine: </span>
+                  <span className="text-orange-600">{selectedComponent.stock.quarantine}</span>
+                </div>
+                <div>
+                  <span className="font-medium">En Cours: </span>
+                  <span className="text-blue-600">{selectedComponent.stock.inProgress}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Type de Mouvement</label>
+                <select
+                  value={movementType}
+                  onChange={(e) => setMovementType(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                >
+                  <option value="IN">Entrée Stock (Réception)</option>
+                  <option value="OUT">Sortie Stock (Production)</option>
+                  <option value="QUARANTINE">Mise en Quarantaine</option>
+                  <option value="RELEASE">Sortie de Quarantaine</option>
+                  <option value="TO_PRODUCTION">Envoi en Production</option>
+                  <option value="FROM_PRODUCTION">Retour de Production</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Quantité</label>
+                <input
+                  type="number"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  min="1"
+                  className="w-full border rounded px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Note (optionnel)</label>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  className="w-full border rounded px-3 py-2 h-20"
+                  placeholder="Machine, défaut, etc..."
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={handleSubmit}
+                  className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
+                >
+                  Valider Mouvement
+                </button>
+                <button
+                  onClick={() => setCurrentView('stocks')}
+                  className="border border-gray-300 px-6 py-2 rounded hover:bg-gray-50"
+                >
+                  Retour
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Historique des mouvements récents */}
+        <div className="bg-white rounded-lg border p-6">
+          <h3 className="text-lg font-semibold mb-4">Mouvements Récents</h3>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {movements.slice(0, 10).map(movement => (
+              <div key={movement.id} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                <div>
+                  <p className="text-sm font-medium">{movement.componentId}</p>
+                  <p className="text-xs text-gray-600">
+                    {movement.type === 'IN' ? '⬆️' : movement.type === 'OUT' ? '⬇️' : '🔄'} 
+                    {movement.quantity} - {movement.from} → {movement.to}
+                  </p>
+                  {movement.note && <p className="text-xs text-gray-500">{movement.note}</p>}
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-gray-500">{movement.date}</p>
+                  <p className="text-xs text-gray-500">{movement.operator}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center">
+              <Package className="h-8 w-8 text-blue-600 mr-3" />
+              <h1 className="text-xl font-bold text-gray-900">ERP MATSYA - Gestion Stocks</h1>
+            </div>
+            <div className="text-sm text-gray-600">
+              Collegien, France | {new Date().toLocaleDateString('fr-FR')}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Navigation */}
+        <nav className="flex space-x-4 mb-6 overflow-x-auto">
+          <button
+            onClick={() => setCurrentView('dashboard')}
+            className={`px-4 py-2 rounded-lg flex items-center whitespace-nowrap ${
+              currentView === 'dashboard' 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <BarChart3 className="h-4 w-4 mr-2" />
+            Dashboard
+          </button>
+          
+          <button
+            onClick={() => setCurrentView('stocks')}
+            className={`px-4 py-2 rounded-lg flex items-center whitespace-nowrap ${
+              currentView === 'stocks' 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Package className="h-4 w-4 mr-2" />
+            Stocks
+          </button>
+
+          <button
+            onClick={() => setCurrentView('mrp')}
+            className={`px-4 py-2 rounded-lg flex items-center whitespace-nowrap ${
+              currentView === 'mrp' 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <TrendingUp className="h-4 w-4 mr-2" />
+            MRP
+          </button>
+
+          <button
+            onClick={() => setCurrentView('planning')}
+            className={`px-4 py-2 rounded-lg flex items-center whitespace-nowrap ${
+              currentView === 'planning' 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Calendar className="h-4 w-4 mr-2" />
+            Planning
+          </button>
+          
+          <button
+            onClick={() => setCurrentView('scanner')}
+            className={`px-4 py-2 rounded-lg flex items-center whitespace-nowrap ${
+              currentView === 'scanner' 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <QrCode className="h-4 w-4 mr-2" />
+            Scanner
+          </button>
+          
+          <button
+            onClick={() => setCurrentView('movement')}
+            className={`px-4 py-2 rounded-lg flex items-center whitespace-nowrap ${
+              currentView === 'movement' 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Mouvements
+          </button>
+        </nav>
+
+        {/* Contenu principal */}
+        <main>
+          {currentView === 'dashboard' && <Dashboard />}
+          {currentView === 'stocks' && <StockList />}
+          {currentView === 'mrp' && <MRPView />}
+          {currentView === 'planning' && <ProductionPlanning />}
+          {currentView === 'scanner' && <Scanner />}
+          {currentView === 'movement' && <StockMovement />}
+        </main>
+      </div>
+    </div>
+  );
+};
+
+export default StockManagementApp;
